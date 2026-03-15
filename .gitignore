@@ -2,3 +2,8 @@ Data/
 Graphs/
 Model/
 Signs/
+
+# virtual environments
+.venv/
+venv/
+env/
