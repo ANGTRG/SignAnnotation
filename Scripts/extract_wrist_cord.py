@@ -3,10 +3,14 @@ import cv2
 import os
 import glob
 
-input_folder = "Signs/Proccessing_Batch_Signs"
-output_folder = "Data/Wrist_Cords"
+#Get scripts folder
+scripts_dir = os.path.dirname(os.path.abspath(__file__))
 
-#os.makedirs(output_folder, exist_ok=True)
+#Get parent folder
+parent_dir = os.path.dirname(scripts_dir)
+input_folder = os.path.join(parent_dir, "Signs", "Proccessing_Batch_Signs")
+output_folder = os.path.join(parent_dir, "Data", "Wrist_Cords")
+os.makedirs(output_folder, exist_ok=True)
 
 def get_cord():
     mp_pose = mp.solutions.pose
@@ -14,17 +18,17 @@ def get_cord():
         static_image_mode=False,
         model_complexity=1,
         smooth_landmarks=True,
-        min_detection_confidence=0.5, #decrease if you still have issues with cordinats being provided when key point is off screen
+        min_detection_confidence=0.5,
         min_tracking_confidence=0.5
     )
-    
-    video_files = glob.glob( input_folder,"/*.mp4")
+
+    video_files = glob.glob(os.path.join(input_folder, "*.mp4"))
     if not video_files:
         print("No MP4 files found.")
         return
 
-    wrist_l = 16 #Cord no# in mp documentation
-    wrist_r = 15 
+    wrist_l = 16  # Coord no# in mp documentation
+    wrist_r = 15
     visibility_threshold = 0.02
     sample_interval = 0.01  # seconds
 
@@ -36,7 +40,6 @@ def get_cord():
 
         with open(csv_path, "w") as file:
             file.write(header)
-
             cap = cv2.VideoCapture(video_path)
             if not cap.isOpened():
                 print(f"Error opening {video_path}")
@@ -44,7 +47,7 @@ def get_cord():
 
             fps = cap.get(cv2.CAP_PROP_FPS)
             step = max(1, int(sample_interval * fps))
-            frame_idx = 0 
+            frame_idx = 0
 
             while True:
                 ret, frame = cap.read()
@@ -68,7 +71,7 @@ def get_cord():
                         else None
                     )
 
-                    if l_xy & r_xy is not None:
+                    if l_xy is not None and r_xy is not None:
                         file.write(",".join(map(str, [frame_idx] + l_xy + r_xy)) + "\n")
 
                 frame_idx += 1
@@ -79,3 +82,5 @@ def get_cord():
             cap.release()
 
     cv2.destroyAllWindows()
+    
+get_cord()
