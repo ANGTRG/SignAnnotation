@@ -1,74 +1,79 @@
-import csv
+import mediapipe as mp
+import cv2
 import os
 import glob
 
-#POI = Point of Intrest
-#ROC = Rate of Change
-def read_cord_csv(csv_file):
-    frame_idxs = []
-    l_x = []
-    l_y = []
-    r_x = []
-    r_y = []
-    
-    with open(csv_file, "r") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            frame_idxs.append(float(row["frame_idx"]))
-            l_x.append(float(row["l_x"]))
-            l_y.append(float(row["l_y"]))
-            r_x.append(float(row["r_x"]))
-            r_y.append(float(row["r_y"]))
-            
-    return frame_idxs, l_x, l_y, r_x, r_y
+input_folder = "Signs/Proccessing_Batch_Signs"
+output_folder = "Data/Wrist_Cords"
+os.makedirs(output_folder, exist_ok=True)
 
+def get_cord():
+    mp_pose = mp.solutions.pose
+    pose = mp_pose.Pose(
+        static_image_mode=False,
+        model_complexity=1,
+        smooth_landmarks=True,
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5
+    )
 
-def read_features_csv(csv_file):
-    frame_idxs = []
-    
-    l_roc_x_sec = []
-    l_roc_y_sec = []
-    r_roc_x_sec = []
-    r_roc_y_sec = []
-    
-    l_move_mag_sec = []
-    r_move_mag_sec = []  
-    
-    poi = [] #will sometimes straight up be null but still want this colom for constancy
-    
-    with open(csv_file, "r") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            frame_idxs.append(float(row["frame_idx"]))
-            
-            l_roc_x_sec.append(float(row["l_roc_x_sec"]))
-            l_roc_y_sec.append(float(row["l_roc_y_sec"]))
-            r_roc_x_sec.append(float(row["r_roc_x_sec"]))
-            r_roc_y_sec.append(float(row["r_roc_y_sec"]))
-            
-            l_move_mag_sec.append(float(row["l_move_mag_sec"]))
-            r_move_mag_sec.append(float(row["r_move_mag_sec"]))
-            
-    return frame_idxs, l_roc_x_sec, l_roc_y_sec, r_roc_x_sec, r_roc_y_sec, l_roc_x_sec, l_move_mag_sec, r_move_mag_sec, poi
+    video_files = glob.glob(os.path.join(input_folder, "*.mp4"))
+    if not video_files:
+        print("No MP4 files found.")
+        return
 
-def read_prediction_csv(csv_file):
-    frame_idx =[]
-    
-    poi =[]
+    wrist_l = 16  # Coord no# in mp documentation
+    wrist_r = 15
+    visibility_threshold = 0.02
+    sample_interval = 0.01  # seconds
 
-    #thinkin about making it so it uses the highest probability of 1 in the first 30 frames as 1? avoids the issue of when no 1 cases are predicted
-    poi_prob_0 = []
-    poi_prob_1 = []
-    
-    with open(csv_file, "r") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            frame_idx.append(float(row["frame_idx"]))
-            
-            poi.append(float(row["poi"]))
-            
-            poi_prob_0.append(float(row["poi_prob_0"]))
-            poi_prob_1.append(float(row["poi_prob_1"]))
+    header = "frame_idx,l_x,l_y,r_x,r_y\n"
 
-    return  frame_idx, poi, poi_prob_0, poi_prob_1
-   
+    for video_path in video_files:
+        base = os.path.splitext(os.path.basename(video_path))[0]
+        csv_path = os.path.join(output_folder, f"wrist_cord_{base}.csv")
+
+        with open(csv_path, "w") as file:
+            file.write(header)
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                print(f"Error opening {video_path}")
+                continue
+
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            step = max(1, int(sample_interval * fps))
+            frame_idx = 0
+
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                results = pose.process(rgb)
+
+                if frame_idx % step == 0 and results.pose_landmarks:
+                    lm = results.pose_landmarks.landmark
+
+                    l_xy = (
+                        [lm[wrist_l].x, lm[wrist_l].y]
+                        if lm[wrist_l].visibility > visibility_threshold
+                        else None
+                    )
+                    r_xy = (
+                        [lm[wrist_r].x, lm[wrist_r].y]
+                        if lm[wrist_r].visibility > visibility_threshold
+                        else None
+                    )
+
+                    if l_xy is not None and r_xy is not None:
+                        file.write(",".join(map(str, [frame_idx] + l_xy + r_xy)) + "\n")
+
+                frame_idx += 1
+                cv2.imshow("MediaPipe Pose Tracking", frame)
+                if cv2.waitKey(1) & 0xFF == 27:
+                    break
+
+            cap.release()
+
+    cv2.destroyAllWindows()
